@@ -7,6 +7,11 @@ uv pip install torch-sparse -f https://data.pyg.org/whl/torch-2.5.1+cu121.html
 uv pip install torch-scatter -f https://data.pyg.org/whl/torch-2.5.1+cu121.html
 ```
 
+# issues
+- shape error 20 011 rows in gene info and one less in gene list, corrected using 
+`bulkformer_gene_info = bulkformer_gene_info[bulkformer_gene_info['ensg_id'] != '35991']`
+according to `https://github.com/KangBoming/BulkFormer/issues/1`
+
 # other
 - weird EOEF errors - out of disk space, clearing pip caches/py helped.
 
