@@ -12,6 +12,9 @@ uv pip install torch-scatter -f https://data.pyg.org/whl/torch-2.5.1+cu121.html
 `bulkformer_gene_info = bulkformer_gene_info[bulkformer_gene_info['ensg_id'] != '35991']`
 according to `https://github.com/KangBoming/BulkFormer/issues/1`
 
+- directly applying to ucl data results in 0 dimension (shape [16, 0, 1920])on gene-level 
+embedding, not sure what has gone wrong -> both datasets need to use gene symbols or ids.
+
 # other
 - weird EOEF errors - out of disk space, clearing pip caches/py helped.
 
@@ -29,3 +32,7 @@ find ~/BulkFormer/ -name "*.pyc" -delete
 what expression value embeddings refers to though.
 3. How many of the gene symbols are in BulkFormer and our data? Appears that
 `main_gene_selection` already accounts for missing genes in some sense. 19338 common genes
+4. Why are max, mean and median embeddings added together in aggregate type all?
+5. What is the difference between gene level and transcriptome level features? 
+6. What is `high_var_gene_idx`? My guess is the top 2000 genes with most variance. Why is
+it only used for transcriptome level features and not gene level?
