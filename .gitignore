@@ -32,3 +32,4 @@ dist/
 
 # model file
 *.pt
+*.csv

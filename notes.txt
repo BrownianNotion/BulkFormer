@@ -1,0 +1,19 @@
+# installation shenanigans:
+torch_sparse wouldn't detect the torch installation with uv, needed to do uv pip install
+from pre-built wheel - is there a way to put this directly into requirements?
+
+```
+uv pip install torch-sparse -f https://data.pyg.org/whl/torch-2.5.1+cu121.html                                     
+uv pip install torch-scatter -f https://data.pyg.org/whl/torch-2.5.1+cu121.html
+```
+
+# other
+- weird EOEF errors - out of disk space, clearing pip caches/py helped.
+
+```
+rm -rf ~/.cache/pip/* 
+find ~/BulkFormer/ -name "__pycache__" -type d -exec rm -rf {} + 
+find ~/BulkFormer/ -name "*.pyc" -delete
+```
+
+- downloading files with wget; the default file name needs to have suffixes removed

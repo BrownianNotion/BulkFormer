@@ -5,3 +5,5 @@ numpy==2.0.2
 fair-esm==2.0.0
 performer-pytorch==1.1.4
 ipykernel
+tqdm
+torch_geometric
