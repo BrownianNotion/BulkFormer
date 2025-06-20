@@ -36,3 +36,7 @@ what expression value embeddings refers to though.
 5. What is the difference between gene level and transcriptome level features? 
 6. What is `high_var_gene_idx`? My guess is the top 2000 genes with most variance. Why is
 it only used for transcriptome level features and not gene level?
+
+# next steps notes 
+1. Run classifiers on the learned embeddings for UCL dataset, figure out which embeddings
+to use (probably the first one, since it has second dimension 640).
