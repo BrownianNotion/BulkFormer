@@ -22,3 +22,10 @@ find ~/BulkFormer/ -name "*.pyc" -delete
 ```
 
 - downloading files with wget; the default file name needs to have suffixes removed
+
+# questions
+1. Why is the shape of the gene-level embedding [16, n_genes, 1920] ?
+2. What are expression values ? (gene expression bulk values, I think) Still not sure
+what expression value embeddings refers to though.
+3. How many of the gene symbols are in BulkFormer and our data? Appears that
+`main_gene_selection` already accounts for missing genes in some sense. 19338 common genes
