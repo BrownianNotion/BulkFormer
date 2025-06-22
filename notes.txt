@@ -28,14 +28,38 @@ find ~/BulkFormer/ -name "*.pyc" -delete
 
 # questions
 1. Why is the shape of the gene-level embedding [16, n_genes, 1920] ?
+
 2. What are expression values ? (gene expression bulk values, I think) Still not sure
 what expression value embeddings refers to though.
+
 3. How many of the gene symbols are in BulkFormer and our data? Appears that
-`main_gene_selection` already accounts for missing genes in some sense. 19338 common genes
+`main_gene_selection` already accounts for missing genes in some sense. 
+    19338 common genes
+
 4. Why are max, mean and median embeddings added together in aggregate type all?
+
 5. What is the difference between gene level and transcriptome level features? 
+
 6. What is `high_var_gene_idx`? My guess is the top 2000 genes with most variance. Why is
 it only used for transcriptome level features and not gene level?
+
+7.  Why remove the module prefix? 
+    Torch adds module prefix to all layers
+    when wrapped in DP/DDP. Removing prefix ensures smooth running on single cpu/GPU.
+
+8. Why is -10 the fill value for the missing genes?
+
+9. The forward call of the model can not only specify outputs, but
+the embeddings in hidden layer. Why are the embeddings calculated from hidden layer 2
+and not the following starting embeddings?
+```
+x = self.expr_emb(x) + self.gene_emb_proj(self.gene_emb) + self.ae_enc(x).unsqueeze(1)
+x = self.x_proj(x)
+```
+
+10. Following on from the previous question then, what is the actual output of
+the model? Is output a probability distribution across genes? (Nope, col sum isnt 1)
+
 
 # next steps notes 
 1. Run classifiers on the learned embeddings for UCL dataset, figure out which embeddings
