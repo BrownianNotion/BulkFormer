@@ -48,6 +48,8 @@ it only used for transcriptome level features and not gene level?
     when wrapped in DP/DDP. Removing prefix ensures smooth running on single cpu/GPU.
 
 8. Why is -10 the fill value for the missing genes?
+    Plays the role of mask token id, probably could have chosen -1 too given log(1+TPM) > 0.
+    (see `rope.py`)
 
 9. The forward call of the model can not only specify outputs, but
 the embeddings in hidden layer. Why are the embeddings calculated from hidden layer 2
@@ -64,3 +66,6 @@ the model? Is output a probability distribution across genes? (Nope, col sum isn
 # next steps notes 
 1. Run classifiers on the learned embeddings for UCL dataset, figure out which embeddings
 to use (probably the first one, since it has second dimension 640).
+
+2. log(TPM + 1) is standard, my dataset amends 0 to 0.001. Not sure if this
+small detail changes anything, but may be worth rerunning amending 0.001 to zeros.
