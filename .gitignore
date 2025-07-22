@@ -30,6 +30,10 @@ dist/
 # Secrets (if using dotenv)
 .env
 
-# model file
+# model  and data file
 *.pt
 *.csv
+*.parquet
+
+# logging
+wandb/

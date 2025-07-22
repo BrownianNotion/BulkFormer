@@ -8,3 +8,5 @@ ipykernel
 tqdm
 torch_geometric
 fastparquet
+polars
+wandb
