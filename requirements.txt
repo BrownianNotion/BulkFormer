@@ -10,3 +10,4 @@ torch_geometric
 fastparquet
 polars
 wandb
+deepspeed

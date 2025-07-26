@@ -20,6 +20,8 @@ from model.config import model_params
 
 from IPython.display import display
 
+import datetime as dt
+
 device = 'cuda'
 
 def load_model(file):
@@ -120,13 +122,16 @@ def train(model, dataloader, num_epochs=10, lr=1e-4, device="cuda", accumulation
         "accumulation_steps": accumulation_steps,
         "batch_size": dataloader.batch_size,
         "model": model.__class__.__name__,
-    })
+    },
+    tags=["BulkFormer"],
+    name=f"{model.__class__.__name__}_{dt.datetime.now()}"
+    )
 
     model = model.to(device) 
     # model = torch.compile(model)  # not compatible with torch sparse
-    optimizer = optim.Adam(model.parameters(), lr=lr)
+    optimizer = optim.Adam(model.parameters(), lr=lr, fused=True)
     loss_fn = nn.MSELoss(reduction="none")
-    scaler = torch.cuda.amp.GradScaler()
+    scaler = torch.amp.GradScaler()
 
     model.train()
     global_step = 0
@@ -144,7 +149,7 @@ def train(model, dataloader, num_epochs=10, lr=1e-4, device="cuda", accumulation
             labels = labels.to(device)
             mask = mask.to(device)
 
-            with torch.cuda.amp.autocast():
+            with torch.amp.autocast(device_type=device):
                 preds = model(masked_x)
                 loss_matrix = loss_fn(preds, labels)
                 masked_loss = loss_matrix[mask].mean() / accumulation_steps
@@ -249,46 +254,63 @@ def extract_feature(expr_array,
         return result_emb
 
 
-torch.manual_seed(42)
+if __name__ == "__main__":
+    WANDB = False
+    if not WANDB:
+        import os
+        os.environ["WANDB_MODE"] = "disabled"
 
-training = True
-if training:
-    model = load_model("model/Bulkformer_ckpt_epoch_29.pt")
-    data = load_data("data/BioAID2_tpm_PC0.001_log2_genesymbol_dedup.parquet")
-    dataloader = DataLoader(TensorDataset(data), batch_size=1, shuffle=True)
-    train(model, dataloader, num_epochs=5)
-    torch.save(model.state_dict(), "fine-tuned-bulkformer1.pt")
+    torch.manual_seed(42)
 
-# generate the embeddings
-model = load_model(file="fine-tuned-bulkformer.pt")
-input_df, _, var = load_data("../UCLThesis/data/BIOAID_UCL_Oxford_361_combined.parquet", genes_only=False, return_df=True)
+    # TODO: Remove this if need higher precision
+    torch.set_float32_matmul_precision('high')
+    
+    # for faster conv layers, no noticeable difference
+    torch.backends.cudnn.benchmark = True
+    
+    training = True
+    if training:
+        print("Loading model...")
+        model = load_model("model/Bulkformer_ckpt_epoch_29.pt")
 
-var.reset_index(inplace=True)
-valid_gene_idx = list(var[var['mask'] == 0].index)
+        print("Loading data...")
+        data = load_data("../UCLThesis/data/BIOAID_combined_tpm_PC0.001_log2_genesymbol_dedup.parquet")
+        dataloader = DataLoader(TensorDataset(data), batch_size=1, shuffle=True, num_workers=16)
 
-# decide whether to use high-variance genes only for embeddings
-high_var_genes_only = False
-if high_var_genes_only:
-    high_var_gene_idx = torch.arange(20010)
-else:
-    high_var_gene_idx = torch.load('data/high_var_gene_list.pt',weights_only=False)
+        print("\033[94mStarting Training\033[0m")
+        train(model, dataloader, num_epochs=5)
+        torch.save(model.state_dict(), "fine-tuned-bulkformer1.pt")
 
-embeddings = extract_feature(
-    expr_array= input_df.values,
-    high_var_gene_idx=high_var_gene_idx,
-    feature_type='transcriptome_level',
-    aggregate_type='max',
-    device=device,
-    batch_size=8,
-    return_expr_value=False,
-    esm2_emb=model_params['gene_emb'],
-    valid_gene_idx=valid_gene_idx
-)
+    # generate the embeddings
+    model = load_model(file="fine-tuned-bulkformer.pt")
+    input_df, _, var = load_data("../UCLThesis/data/BIOAID_UCL_Oxford_361_combined.parquet", genes_only=False, return_df=True)
 
-# about 1 minute batch size 16 for 1100, time seems around same with batch size 4
-embeddings = pd.DataFrame(embeddings.numpy(), columns=[f"col_{i}" for i in range(640)])
-display(embeddings)
-embeddings.to_parquet("../UCLThesis/data/BIOAID_361_embeddings_all_genes_fine_tuned.parquet", index=False)
+    var.reset_index(inplace=True)
+    valid_gene_idx = list(var[var['mask'] == 0].index)
+
+    # decide whether to use high-variance genes only for embeddings
+    high_var_genes_only = False
+    if high_var_genes_only:
+        high_var_gene_idx = torch.arange(20010)
+    else:
+        high_var_gene_idx = torch.load('data/high_var_gene_list.pt',weights_only=False)
+
+    embeddings = extract_feature(
+        expr_array= input_df.values,
+        high_var_gene_idx=high_var_gene_idx,
+        feature_type='transcriptome_level',
+        aggregate_type='max',
+        device=device,
+        batch_size=8,
+        return_expr_value=False,
+        esm2_emb=model_params['gene_emb'],
+        valid_gene_idx=valid_gene_idx
+    )
+
+    # about 1 minute batch size 16 for 1100, time seems around same with batch size 4
+    embeddings = pd.DataFrame(embeddings.numpy(), columns=[f"col_{i}" for i in range(640)])
+    display(embeddings)
+    embeddings.to_parquet("../UCLThesis/data/BIOAID_361_embeddings_all_genes_fine_tuned.parquet", index=False)
 
 
 
