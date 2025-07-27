@@ -18,6 +18,10 @@ import wandb
 from utils.BulkFormer import BulkFormer
 from model.config import model_params
 
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, roc_auc_score, precision_recall_fscore_support
+from sklearn.linear_model import LogisticRegression
+
 from IPython.display import display
 
 import datetime as dt
@@ -115,10 +119,58 @@ def mask_inputs(x, mask_prob=MASK_PROB):
     return masked_x, labels, mask
 
 def get_validation_metrics(X, y):
-    pass
+    # TODO: add CV/not using test set later
+    X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=0.8, random_state=42, stratify=y)
+    clf = LogisticRegression(max_iter=200, penalty='l1', solver='saga') 
+
+    # TODO: add feature scaling if needed
+    clf.fit(X_train, y_train)
+    y_pred = clf.predict(X_test) 
+    y_prob = clf.predict_proba(X_test) [:, 1]
+
+    accuracy = accuracy_score(y_test, y_pred)
+    roc_auc = roc_auc_score(y_test, y_prob)
+
+    precision, recall, f1, _ = precision_recall_fscore_support(y_test, y_pred, average='binary')
+
+    return {
+        "val/accuracy": accuracy,
+        "val/roc_auc": roc_auc ,
+        "val/precision": precision,
+        "val/recall": recall,
+        "val/f1": f1,
+    }
 
 
-def train(model, dataloader, num_epochs=10, lr=1e-4, device="cuda", accumulation_steps=8, wandb_project="Thesis"):
+def get_validation_metrics_from_embeddings(
+        file="~/UCLThesis/data/BIOAID_UCL_Oxford_361_combined.parquet", 
+        debug=True):
+
+    if debug:
+        file = "~/UCLThesis/data/BIOAID_UCL_Oxford_10_labelled_debug.parquet"
+
+    embeddings = generate_embeddings(
+        model,
+        file=file,
+        high_var_genes_only=False,
+    )
+
+    X = pd.DataFrame(embeddings.numpy(), columns=[f"col_{i}" for i in range(model.dim)])
+    label_col = "micro_diagnosis"
+    
+    # process targets
+    y = pd.read_parquet(file)[label_col]
+    y = y.fillna(value="None")
+
+    # In future, pd won't auto downcast. In our case, we manually ensure the type
+    # so we can just ignore the warning.
+    with pd.option_context('future.no_silent_downcasting', True):
+        y.replace({"Bacterial": 0, "None": 0, "Bacterial & Viral": 1, "Viral": 1}, inplace=True)
+    y = y.astype(int)
+
+    return get_validation_metrics(X, y)
+
+def train(model, dataloader, num_epochs=10, lr=1e-4, device="cuda", accumulation_steps=8, wandb_project="Thesis", debug=False):
     # 🟢 Initialize wandb
     wandb.init(project=wandb_project, config={
         "learning_rate": lr,
@@ -144,7 +196,7 @@ def train(model, dataloader, num_epochs=10, lr=1e-4, device="cuda", accumulation
         running_loss = 0.0
         step = 0
 
-        pbar = tqdm(enumerate(dataloader), total=len(dataloader), desc=f"Epoch {epoch+1}", leave=False, position=1)
+        pbar = tqdm(enumerate(dataloader), total=len(dataloader), desc=f"Batches, Epoch {epoch+1}", leave=False, position=1)
 
         for i, (batch,) in pbar:
             batch = batch.to(device)
@@ -167,7 +219,10 @@ def train(model, dataloader, num_epochs=10, lr=1e-4, device="cuda", accumulation
                 optimizer.zero_grad(set_to_none=True)
 
                 avg_loss = running_loss
-                wandb.log({"loss": avg_loss, "step": global_step})
+                wandb.log({
+                    "train/loss": avg_loss, 
+                    "train/step": global_step}
+                    )
                 pbar.set_postfix({"loss": f"{avg_loss:.6f}"})
 
                 running_loss = 0.0
@@ -183,8 +238,16 @@ def train(model, dataloader, num_epochs=10, lr=1e-4, device="cuda", accumulation
             scaler.update()
             optimizer.zero_grad(set_to_none=True)
 
-            wandb.log({"loss": running_loss, "step": global_step})
+            wandb.log({"train/loss": running_loss, "train/step": global_step})
             global_step += 1
+
+        # measure performance on the training set from labelled dataset as validation 
+
+        val_metrics = get_validation_metrics_from_embeddings(
+            file="~/UCLThesis/data/BIOAID_UCL_Oxford_361_combined.parquet",
+            debug=debug) # remember debug = True uses different dataset and ignores file
+
+        wandb.log(val_metrics)
 
     wandb.finish()
 
@@ -210,7 +273,7 @@ def extract_feature(model,
 
     with torch.no_grad():
         if feature_type == 'transcriptome_level':
-            for (X,) in tqdm(myloader, total=len(myloader)):
+            for (X,) in tqdm(myloader, total=len(myloader), leave=True, desc="\033[94mGenerating Embeddings\033[0m"):
                 X = X.to(device)
                 output, emb = model(X, [2])
                 # output shape [batch, n_genes]
@@ -260,7 +323,7 @@ def extract_feature(model,
 
 def generate_embeddings(
         model, 
-        file="../UCLThesis/data/BIOAID_UCL_Oxford_361_combined.parquet", 
+        file="~/UCLThesis/data/BIOAID_UCL_Oxford_361_combined.parquet", 
         high_var_genes_only=False):
     input_df, _, var = load_data(file, genes_only=False, return_df=True)
 
@@ -290,7 +353,8 @@ def generate_embeddings(
 
 
 if __name__ == "__main__":
-    WANDB = False
+    WANDB = True
+    DEBUG = True
     if not WANDB:
         import os
         os.environ["WANDB_MODE"] = "disabled"
@@ -303,27 +367,29 @@ if __name__ == "__main__":
     # for faster conv layers, no noticeable difference
     torch.backends.cudnn.benchmark = True
 
-    training = False
+    training = True
     if training:
         print("Loading model...")
         model = load_model("model/Bulkformer_ckpt_epoch_29.pt")
 
         print("Loading data...")
+        DEBUG_TRAINING_SAMPLES = 10 if DEBUG else 10000
         data = load_data("../UCLThesis/data/BIOAID_combined_tpm_PC0.001_log2_genesymbol_dedup.parquet")
-        dataloader = DataLoader(TensorDataset(data), batch_size=1, shuffle=True, num_workers=16)
+        dataloader = DataLoader(TensorDataset(data[:DEBUG_TRAINING_SAMPLES]), batch_size=1, shuffle=True, num_workers=16)
 
         print("\033[94mStarting Training\033[0m")
-        train(model, dataloader, num_epochs=5)
+        train(model, dataloader, num_epochs=5, debug=DEBUG)
         torch.save(model.state_dict(), "fine-tuned-bulkformer1.pt")
 
-    # generate the embeddings
-    model = load_model(file="fine-tuned-bulkformer.pt")
-    embeddings = generate_embeddings(model)
+    else:
+        # generate the embeddings
+        model = load_model(file="fine-tuned-bulkformer.pt")
+        embeddings = generate_embeddings(model)
 
-    # about 1 minute batch size 16 for 1100, time seems around same with batch size 4
-    embeddings = pd.DataFrame(embeddings.numpy(), columns=[f"col_{i}" for i in range(640)])
-    display(embeddings)
-    embeddings.to_parquet("../UCLThesis/data/BIOAID_361_embeddings_all_genes_fine_tuned.parquet", index=False)
+        # about 1 minute batch size 16 for 1100, time seems around same with batch size 4
+        embeddings = pd.DataFrame(embeddings.numpy(), columns=[f"col_{i}" for i in range(640)])
+        display(embeddings)
+        embeddings.to_parquet("../UCLThesis/data/BIOAID_361_embeddings_all_genes_fine_tuned.parquet", index=False)
 
 
 
