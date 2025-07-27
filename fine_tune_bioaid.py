@@ -354,7 +354,7 @@ def generate_embeddings(
 
 if __name__ == "__main__":
     WANDB = True
-    DEBUG = True
+    DEBUG = False
     if not WANDB:
         import os
         os.environ["WANDB_MODE"] = "disabled"
@@ -379,7 +379,7 @@ if __name__ == "__main__":
 
         print("\033[94mStarting Training\033[0m")
         train(model, dataloader, num_epochs=5, debug=DEBUG)
-        torch.save(model.state_dict(), "fine-tuned-bulkformer1.pt")
+        torch.save(model.state_dict(), f"fine-tuned-bulkformer-{dt.datetime.now()}.pt")
 
     else:
         # generate the embeddings
