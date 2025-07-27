@@ -25,6 +25,7 @@ from sklearn.linear_model import LogisticRegression
 from IPython.display import display
 
 import datetime as dt
+import math
 
 device = 'cuda'
 
@@ -186,6 +187,21 @@ def train(model, dataloader, num_epochs=10, lr=1e-4, device="cuda", accumulation
     model = model.to(device) 
     # model = torch.compile(model)  # not compatible with torch sparse
     optimizer = optim.Adam(model.parameters(), lr=lr, fused=True)
+
+    # 1) after you create `optimizer`
+    total_steps  = num_epochs * len(dataloader)        # full training budget
+    warmup_steps = int(0.1 * total_steps)              # e.g. 10 % warm-up
+    max_lr       = lr 
+
+    def lr_lambda(step):
+        if step < warmup_steps:                        # linear warm-up
+            return (step + 1) / warmup_steps
+        # cosine decay to zero
+        progress = (step - warmup_steps) / (total_steps - warmup_steps)
+        return 0.5 * (1 + math.cos(math.pi * progress))
+
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
+    
     loss_fn = nn.MSELoss(reduction="none")
     scaler = torch.amp.GradScaler()
 
@@ -218,11 +234,14 @@ def train(model, dataloader, num_epochs=10, lr=1e-4, device="cuda", accumulation
                 scaler.update()
                 optimizer.zero_grad(set_to_none=True)
 
+                scheduler.step()
+
                 avg_loss = running_loss
                 wandb.log({
                     "train/loss": avg_loss, 
-                    "train/step": global_step}
-                    )
+                    "train/step": global_step,
+                    "train/lr": scheduler.get_last_lr()[0]
+                    })
                 pbar.set_postfix({"loss": f"{avg_loss:.6f}"})
 
                 running_loss = 0.0
@@ -237,6 +256,8 @@ def train(model, dataloader, num_epochs=10, lr=1e-4, device="cuda", accumulation
             scaler.step(optimizer)
             scaler.update()
             optimizer.zero_grad(set_to_none=True)
+
+            scheduler.step()
 
             wandb.log({"train/loss": running_loss, "train/step": global_step})
             global_step += 1
@@ -378,7 +399,7 @@ if __name__ == "__main__":
         dataloader = DataLoader(TensorDataset(data[:DEBUG_TRAINING_SAMPLES]), batch_size=1, shuffle=True, num_workers=16)
 
         print("\033[94mStarting Training\033[0m")
-        train(model, dataloader, num_epochs=5, debug=DEBUG)
+        train(model, dataloader, num_epochs=10, debug=DEBUG, lr=2e-4)
         torch.save(model.state_dict(), f"fine-tuned-bulkformer-{dt.datetime.now()}.pt")
 
     else:
