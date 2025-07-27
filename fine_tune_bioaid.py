@@ -114,6 +114,10 @@ def mask_inputs(x, mask_prob=MASK_PROB):
 
     return masked_x, labels, mask
 
+def get_validation_metrics(X, y):
+    pass
+
+
 def train(model, dataloader, num_epochs=10, lr=1e-4, device="cuda", accumulation_steps=8, wandb_project="Thesis"):
     # 🟢 Initialize wandb
     wandb.init(project=wandb_project, config={
@@ -184,7 +188,8 @@ def train(model, dataloader, num_epochs=10, lr=1e-4, device="cuda", accumulation
 
     wandb.finish()
 
-def extract_feature(expr_array, 
+def extract_feature(model,
+                    expr_array, 
                     high_var_gene_idx,
                     feature_type,
                     aggregate_type,
@@ -253,6 +258,36 @@ def extract_feature(expr_array,
     else:
         return result_emb
 
+def generate_embeddings(
+        model, 
+        file="../UCLThesis/data/BIOAID_UCL_Oxford_361_combined.parquet", 
+        high_var_genes_only=False):
+    input_df, _, var = load_data(file, genes_only=False, return_df=True)
+
+    var.reset_index(inplace=True)
+    valid_gene_idx = list(var[var['mask'] == 0].index)
+
+    # decide whether to use high-variance genes only for embeddings
+    if high_var_genes_only:
+        high_var_gene_idx = torch.arange(20010)
+    else:
+        high_var_gene_idx = torch.load('data/high_var_gene_list.pt',weights_only=False)
+
+    embeddings = extract_feature(
+        model,
+        expr_array= input_df.values,
+        high_var_gene_idx=high_var_gene_idx,
+        feature_type='transcriptome_level',
+        aggregate_type='max',
+        device=device, # TODO: may need to change to cpu if OOM
+        batch_size=8,
+        return_expr_value=False,
+        esm2_emb=model_params['gene_emb'],
+        valid_gene_idx=valid_gene_idx
+    )
+
+    return embeddings 
+
 
 if __name__ == "__main__":
     WANDB = False
@@ -267,8 +302,8 @@ if __name__ == "__main__":
     
     # for faster conv layers, no noticeable difference
     torch.backends.cudnn.benchmark = True
-    
-    training = True
+
+    training = False
     if training:
         print("Loading model...")
         model = load_model("model/Bulkformer_ckpt_epoch_29.pt")
@@ -283,29 +318,7 @@ if __name__ == "__main__":
 
     # generate the embeddings
     model = load_model(file="fine-tuned-bulkformer.pt")
-    input_df, _, var = load_data("../UCLThesis/data/BIOAID_UCL_Oxford_361_combined.parquet", genes_only=False, return_df=True)
-
-    var.reset_index(inplace=True)
-    valid_gene_idx = list(var[var['mask'] == 0].index)
-
-    # decide whether to use high-variance genes only for embeddings
-    high_var_genes_only = False
-    if high_var_genes_only:
-        high_var_gene_idx = torch.arange(20010)
-    else:
-        high_var_gene_idx = torch.load('data/high_var_gene_list.pt',weights_only=False)
-
-    embeddings = extract_feature(
-        expr_array= input_df.values,
-        high_var_gene_idx=high_var_gene_idx,
-        feature_type='transcriptome_level',
-        aggregate_type='max',
-        device=device,
-        batch_size=8,
-        return_expr_value=False,
-        esm2_emb=model_params['gene_emb'],
-        valid_gene_idx=valid_gene_idx
-    )
+    embeddings = generate_embeddings(model)
 
     # about 1 minute batch size 16 for 1100, time seems around same with batch size 4
     embeddings = pd.DataFrame(embeddings.numpy(), columns=[f"col_{i}" for i in range(640)])
