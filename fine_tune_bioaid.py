@@ -195,10 +195,10 @@ def train(model, dataloader, num_epochs=10, lr=1e-4, device="cuda", accumulation
 
     def lr_lambda(step):
         if step < warmup_steps:                        # linear warm-up
-            return (step + 1) / warmup_steps
+            return max_lr * (step + 1) / warmup_steps
         # cosine decay to zero
         progress = (step - warmup_steps) / (total_steps - warmup_steps)
-        return 0.5 * (1 + math.cos(math.pi * progress))
+        return 0.5 * (1 + math.cos(math.pi * progress)) * max_lr
 
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
     
