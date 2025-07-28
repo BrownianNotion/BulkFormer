@@ -377,8 +377,8 @@ def generate_embeddings(
 
 
 if __name__ == "__main__":
-    WANDB = False
-    DEBUG = True
+    WANDB = True
+    DEBUG = False
     if not WANDB:
         import os
         os.environ["WANDB_MODE"] = "disabled"
