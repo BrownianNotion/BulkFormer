@@ -400,8 +400,9 @@ if __name__ == "__main__":
 
         print("\033[94mStarting Training\033[0m")
         train(model, dataloader, num_epochs=10, debug=DEBUG, lr=2e-4)
-        torch.save(model.state_dict(), f"fine-tuned-bulkformer-{dt.datetime.now()}.pt")
 
+        if not DEBUG:
+            torch.save(model.state_dict(), f"fine-tuned-bulkformer-{dt.datetime.now()}.pt")
     else:
         # generate the embeddings
         model = load_model(file="fine-tuned-bulkformer.pt")
