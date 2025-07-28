@@ -180,7 +180,7 @@ def train(model, dataloader, num_epochs=10, lr=1e-4, device="cuda", accumulation
         "batch_size": dataloader.batch_size,
         "model": model.__class__.__name__,
     },
-    tags=["BulkFormer"],
+    tags=["BulkFormer"],  # TODO: don't forget to add tags for each new run
     name=f"{model.__class__.__name__}_{dt.datetime.now()}"
     )
 
@@ -188,19 +188,19 @@ def train(model, dataloader, num_epochs=10, lr=1e-4, device="cuda", accumulation
     # model = torch.compile(model)  # not compatible with torch sparse
     optimizer = optim.Adam(model.parameters(), lr=lr, fused=True)
 
-    # 1) after you create `optimizer`
-    total_steps  = num_epochs * len(dataloader)        # full training budget
-    warmup_steps = int(0.1 * total_steps)              # e.g. 10 % warm-up
-    max_lr       = lr 
+    # TODO: turn this back on after baseline run, consider adding min rate
+    # total_steps  = num_epochs * len(dataloader) // accumulation_steps        # full training budget
+    # warmup_steps = int(0.1 * total_steps)              # e.g. 10 % warm-up
+    # max_lr       = lr 
 
-    def lr_lambda(step):
-        if step < warmup_steps:                        # linear warm-up
-            return max_lr * (step + 1) / warmup_steps
-        # cosine decay to zero
-        progress = (step - warmup_steps) / (total_steps - warmup_steps)
-        return 0.5 * (1 + math.cos(math.pi * progress)) * max_lr
+    # def lr_lambda(step):
+    #     if step < warmup_steps:                        # linear warm-up
+    #         return max_lr * (step + 1) / warmup_steps
+    #     # cosine decay to zero
+    #     progress = (step - warmup_steps) / (total_steps - warmup_steps)
+    #     return 0.5 * (1 + math.cos(math.pi * progress)) * max_lr
 
-    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
+    # scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
     
     loss_fn = nn.MSELoss(reduction="none")
     scaler = torch.amp.GradScaler()
@@ -234,13 +234,13 @@ def train(model, dataloader, num_epochs=10, lr=1e-4, device="cuda", accumulation
                 scaler.update()
                 optimizer.zero_grad(set_to_none=True)
 
-                scheduler.step()
+                # scheduler.step()
 
                 avg_loss = running_loss
                 wandb.log({
                     "train/loss": avg_loss, 
                     "train/step": global_step,
-                    "train/lr": scheduler.get_last_lr()[0]
+                    "train/lr": optimizer.param_groups[0]['lr']
                     })
                 pbar.set_postfix({"loss": f"{avg_loss:.6f}"})
 
@@ -257,7 +257,7 @@ def train(model, dataloader, num_epochs=10, lr=1e-4, device="cuda", accumulation
             scaler.update()
             optimizer.zero_grad(set_to_none=True)
 
-            scheduler.step()
+            # scheduler.step()
 
             wandb.log({"train/loss": running_loss, "train/step": global_step})
             global_step += 1
