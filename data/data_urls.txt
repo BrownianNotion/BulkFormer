@@ -1,3 +1,0 @@
-https://zenodo.org/records/15559368/files/G_gtex.pt?download=1
-https://zenodo.org/records/15559368/files/G_gtex_weight.pt?download=1
-https://zenodo.org/records/15559368/files/esm2_feature_concat.pt?download=1

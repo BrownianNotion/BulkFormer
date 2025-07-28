@@ -81,10 +81,10 @@ def load_data(file, genes_only=True, return_df=False):
 
     df = pd.read_parquet(file)
     bulkformer_gene_info = pd.read_csv('data/bulkformer_gene_info.csv')
-    bulkformer_gene_info = bulkformer_gene_info[bulkformer_gene_info['ensg_id'] != '35991']
-    bulkformer_gene_list = list(bulkformer_gene_info["gene_symbol"])
+    bulkformer_gene_list = list(bulkformer_gene_info["ensg_id"])
 
     if not genes_only:
+        # TODO: change to gene id
         df = df.loc[:, "5S_rRNA":]
 
     input_df, to_fill_columns, var = main_gene_selection(X_df=df,gene_list=bulkformer_gene_list)
@@ -394,12 +394,12 @@ if __name__ == "__main__":
         model = load_model("model/Bulkformer_ckpt_epoch_29.pt")
 
         print("Loading data...")
-        DEBUG_TRAINING_SAMPLES = 10 if DEBUG else 10000
+        DEBUG_TRAINING_SAMPLES = 10 if DEBUG else 1000000
         data = load_data("../UCLThesis/data/BIOAID_combined_tpm_PC0.001_log2_genesymbol_dedup.parquet")
-        dataloader = DataLoader(TensorDataset(data[:DEBUG_TRAINING_SAMPLES]), batch_size=1, shuffle=True, num_workers=16)
+        dataloader = DataLoader(TensorDataset(data[:DEBUG_TRAINING_SAMPLES]), batch_size=1, shuffle=True)
 
         print("\033[94mStarting Training\033[0m")
-        train(model, dataloader, num_epochs=10, debug=DEBUG, lr=2e-4)
+        train(model, dataloader, num_epochs=10, debug=DEBUG, lr=1e-4)
 
         if not DEBUG:
             torch.save(model.state_dict(), f"fine-tuned-bulkformer-{dt.datetime.now()}.pt")
