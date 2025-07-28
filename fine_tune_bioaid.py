@@ -84,8 +84,7 @@ def load_data(file, genes_only=True, return_df=False):
     bulkformer_gene_list = list(bulkformer_gene_info["ensg_id"])
 
     if not genes_only:
-        # TODO: change to gene id
-        df = df.loc[:, "5S_rRNA":]
+        df = df.loc[:, "ENSG00000000003":]
 
     input_df, to_fill_columns, var = main_gene_selection(X_df=df,gene_list=bulkformer_gene_list)
     if return_df:
@@ -144,7 +143,7 @@ def get_validation_metrics(X, y):
 
 
 def get_validation_metrics_from_embeddings(
-        file="~/UCLThesis/data/BIOAID_UCL_Oxford_361_combined.parquet", 
+        file="~/UCLThesis/data/BIOAID_UCL_Oxford_361_labelled.parquet", 
         debug=True):
 
     if debug:
@@ -265,7 +264,7 @@ def train(model, dataloader, num_epochs=10, lr=1e-4, device="cuda", accumulation
         # measure performance on the training set from labelled dataset as validation 
 
         val_metrics = get_validation_metrics_from_embeddings(
-            file="~/UCLThesis/data/BIOAID_UCL_Oxford_361_combined.parquet",
+            file="~/UCLThesis/data/BIOAID_UCL_Oxford_361_labelled.parquet",
             debug=debug) # remember debug = True uses different dataset and ignores file
 
         wandb.log(val_metrics)
@@ -344,7 +343,7 @@ def extract_feature(model,
 
 def generate_embeddings(
         model, 
-        file="~/UCLThesis/data/BIOAID_UCL_Oxford_361_combined.parquet", 
+        file="~/UCLThesis/data/BIOAID_UCL_Oxford_361_labelled.parquet", 
         high_var_genes_only=False):
     input_df, _, var = load_data(file, genes_only=False, return_df=True)
 
@@ -374,8 +373,8 @@ def generate_embeddings(
 
 
 if __name__ == "__main__":
-    WANDB = True
-    DEBUG = False
+    WANDB = False
+    DEBUG = True
     if not WANDB:
         import os
         os.environ["WANDB_MODE"] = "disabled"
@@ -395,15 +394,16 @@ if __name__ == "__main__":
 
         print("Loading data...")
         DEBUG_TRAINING_SAMPLES = 10 if DEBUG else 1000000
-        data = load_data("../UCLThesis/data/BIOAID_combined_tpm_PC0.001_log2_genesymbol_dedup.parquet")
+        data = load_data("../UCLThesis/data/BIOAID_unlabelled_tpm_PC0.001_log2.parquet")
         dataloader = DataLoader(TensorDataset(data[:DEBUG_TRAINING_SAMPLES]), batch_size=1, shuffle=True)
 
         print("\033[94mStarting Training\033[0m")
-        train(model, dataloader, num_epochs=10, debug=DEBUG, lr=1e-4)
+        train(model, dataloader, num_epochs=5, debug=DEBUG, lr=1e-4)
 
         if not DEBUG:
             torch.save(model.state_dict(), f"fine-tuned-bulkformer-{dt.datetime.now()}.pt")
     else:
+        # TODO: move this to a separate script.
         # generate the embeddings
         model = load_model(file="fine-tuned-bulkformer.pt")
         embeddings = generate_embeddings(model)
