@@ -21,6 +21,8 @@ from model.config import model_params
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, roc_auc_score, precision_recall_fscore_support
 from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import make_pipeline
 
 from IPython.display import display
 
@@ -119,14 +121,16 @@ def mask_inputs(x, mask_prob=MASK_PROB):
     return masked_x, labels, mask
 
 def get_validation_metrics(X, y):
-    # TODO: add CV/not using test set later
+    # TODO: add CV/not using test set later, ensure stratified KFold
     X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=0.8, random_state=42, stratify=y)
-    clf = LogisticRegression(max_iter=200, penalty='l1', solver='saga') 
+    clf = make_pipeline(
+        StandardScaler(),
+        LogisticRegression(max_iter=200, penalty='l1', solver='saga') 
+    ) 
 
-    # TODO: add feature scaling if needed
     clf.fit(X_train, y_train)
     y_pred = clf.predict(X_test) 
-    y_prob = clf.predict_proba(X_test) [:, 1]
+    y_prob = clf.predict_proba(X_test)[:, 1]
 
     accuracy = accuracy_score(y_test, y_pred)
     roc_auc = roc_auc_score(y_test, y_prob)
