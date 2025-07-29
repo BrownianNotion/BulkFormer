@@ -104,7 +104,7 @@ def mask_inputs(
     x: torch.Tensor,
     preferred_idx: torch.Tensor,
     mask_prob: float = 0.15,
-    preferred_masking_prob: float = 0.8,
+    preferred_masking_prob: float = 0.6,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Args:
@@ -207,7 +207,7 @@ def train(model, dataloader, num_epochs=10, lr=1e-4, device="cuda", accumulation
         "batch_size": dataloader.batch_size,
         "model": model.__class__.__name__,
     },
-    tags=["BulkFormer"],  # TODO: don't forget to add tags for each new run
+    tags=["BulkFormer", "BiasedMask"],  # TODO: don't forget to add tags for each new run
     name=f"{model.__class__.__name__}_{dt.datetime.now()}"
     )
 
