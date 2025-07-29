@@ -82,7 +82,7 @@ def load_data(file, genes_only=True, return_df=False):
     # main_gene used for generating new embeddings i.e inference not training
 
     df = pd.read_parquet(file)
-    bulkformer_gene_info = pd.read_csv('data/bulkformer_gene_info.csv')
+    bulkformer_gene_info = pd.read_csv('~/UCLThesis/data/bulkformer_gene_info.csv')
     bulkformer_gene_list = list(bulkformer_gene_info["ensg_id"])
 
     if not genes_only:
@@ -99,24 +99,47 @@ MASK_PROB = 0.15
 MASK_VALUE = -10.0
 
 # 2. Masking function
-def mask_inputs(x, mask_prob=MASK_PROB):
+
+def mask_inputs(
+    x: torch.Tensor,
+    preferred_idx: torch.Tensor,
+    mask_prob: float = 0.15,
+    preferred_masking_prob: float = 0.8,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
-    x: (batch_size, 20010) tensor
+    Args:
+        x: (B, G) float tensor
+        preferred_idx: 1D tensor of fixed-length indices to mask when preferred is chosen
+        mask_prob: proportion of genes to mask (only used in random case)
+        preferred_masking_prob: probability of choosing preferred indices over random masking
+
     Returns:
-        masked_x: input with some values masked (set to MASK_VALUE)
-        labels: target values (same shape), with unmasked positions = MASK_VALUE (so we can ignore them in loss)
-        mask: boolean mask of which positions were masked
+        masked_x: x with some values replaced by MASK_VALUE
+        labels: same shape, with original values only at masked positions
+        mask: boolean tensor of masked positions
     """
-    # Do not mask already missing positions
+    x = x.clone()
+    B, G = x.shape
+    device = x.device
+
     valid_mask = (x != MASK_VALUE)
-    rand = torch.rand_like(x)
-    mask = (rand < mask_prob) & valid_mask
-
     masked_x = x.clone()
-    masked_x[mask] = MASK_VALUE
-
     labels = torch.full_like(x, MASK_VALUE)
-    labels[mask] = x[mask]
+    mask = torch.zeros_like(x, dtype=torch.bool)
+
+    num_to_mask = int(mask_prob * G)
+    assert num_to_mask == len(preferred_idx)
+
+    for i in range(B):
+        if preferred_idx and torch.rand(1).item() < preferred_masking_prob:
+            candidate_idx = preferred_idx  
+        else:
+            valid = torch.where(valid_mask[i])[0]  # 1D tensor of valid indices
+            candidate_idx = valid[torch.randperm(len(valid), device=device)[:num_to_mask]]
+
+        masked_x[i, candidate_idx] = MASK_VALUE
+        labels[i, candidate_idx] = x[i, candidate_idx]
+        mask[i, candidate_idx] = True
 
     return masked_x, labels, mask
 
@@ -174,7 +197,8 @@ def get_validation_metrics_from_embeddings(
 
     return get_validation_metrics(X, y)
 
-def train(model, dataloader, num_epochs=10, lr=1e-4, device="cuda", accumulation_steps=8, wandb_project="Thesis", debug=False):
+def train(model, dataloader, num_epochs=10, lr=1e-4, device="cuda", accumulation_steps=8, wandb_project="Thesis", debug=False,
+          preferred_idx=None):
     # 🟢 Initialize wandb
     wandb.init(project=wandb_project, config={
         "learning_rate": lr,
@@ -218,8 +242,8 @@ def train(model, dataloader, num_epochs=10, lr=1e-4, device="cuda", accumulation
         pbar = tqdm(enumerate(dataloader), total=len(dataloader), desc=f"Batches, Epoch {epoch+1}", leave=False, position=1)
 
         for i, (batch,) in pbar:
-            batch = batch.to(device)
-            masked_x, labels, mask = mask_inputs(batch)
+            batch = batch.to(device) # TODO: consider putting dataset on GPU to reduce transfers if memory allows
+            masked_x, labels, mask = mask_inputs(batch, preferred_idx=preferred_idx)
             masked_x = masked_x.to(device)
             labels = labels.to(device)
             mask = mask.to(device)
@@ -398,11 +422,18 @@ if __name__ == "__main__":
 
         print("Loading data...")
         DEBUG_TRAINING_SAMPLES = 10 if DEBUG else 1000000
-        data = load_data("../UCLThesis/data/BIOAID_unlabelled_tpm_PC0.001_log2.parquet")
+        data, _, _ = load_data("../UCLThesis/data/BIOAID_unlabelled_tpm_PC0.001_log2.parquet", return_df=True)
+        all_genes = data.columns
+
+        data = torch.tensor(data.values, dtype=torch.float32)
         dataloader = DataLoader(TensorDataset(data[:DEBUG_TRAINING_SAMPLES]), batch_size=1, shuffle=True)
 
+        # bias training toward list
+        preferred_genes = set(pd.read_csv("data/top_mean_diff_genes.csv").iloc[:, 0])
+        preferred_idx = [i for i, gene_id in enumerate(all_genes) if gene_id in preferred_genes]
+
         print("\033[94mStarting Training\033[0m")
-        train(model, dataloader, num_epochs=5, debug=DEBUG, lr=1e-4)
+        train(model, dataloader, num_epochs=5, debug=DEBUG, lr=1e-4, preferred_idx=preferred_idx)
 
         if not DEBUG:
             torch.save(model.state_dict(), f"fine-tuned-bulkformer-{dt.datetime.now()}.pt")
