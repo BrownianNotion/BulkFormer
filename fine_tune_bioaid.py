@@ -104,7 +104,7 @@ def mask_inputs(
     x: torch.Tensor,
     preferred_idx: torch.Tensor,
     mask_prob: float = 0.15,
-    preferred_masking_prob: float = 0.6,
+    preferred_masking_prob: float = 0.4,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Args:
