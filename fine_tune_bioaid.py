@@ -433,7 +433,7 @@ if __name__ == "__main__":
         preferred_idx = [i for i, gene_id in enumerate(all_genes) if gene_id in preferred_genes]
 
         print("\033[94mStarting Training\033[0m")
-        train(model, dataloader, num_epochs=10, debug=DEBUG, lr=2e-5, preferred_idx=preferred_idx)
+        train(model, dataloader, num_epochs=5, debug=DEBUG, lr=1e-4, preferred_idx=preferred_idx)
 
         if not DEBUG:
             torch.save(model.state_dict(), f"fine-tuned-bulkformer-{dt.datetime.now()}.pt")
