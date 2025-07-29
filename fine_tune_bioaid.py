@@ -104,7 +104,7 @@ def mask_inputs(
     x: torch.Tensor,
     preferred_idx: torch.Tensor,
     mask_prob: float = 0.15,
-    preferred_masking_prob: float = 0.4,
+    preferred_masking_prob: float = 0.8,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Args:
@@ -243,7 +243,7 @@ def train(model, dataloader, num_epochs=10, lr=1e-4, device="cuda", accumulation
 
         for i, (batch,) in pbar:
             batch = batch.to(device) # TODO: consider putting dataset on GPU to reduce transfers if memory allows
-            masked_x, labels, mask = mask_inputs(batch, preferred_idx=preferred_idx)
+            masked_x, labels, mask = mask_inputs(batch, preferred_idx=preferred_idx, preferred_masking_prob=0.0)
             masked_x = masked_x.to(device)
             labels = labels.to(device)
             mask = mask.to(device)
@@ -433,7 +433,7 @@ if __name__ == "__main__":
         preferred_idx = [i for i, gene_id in enumerate(all_genes) if gene_id in preferred_genes]
 
         print("\033[94mStarting Training\033[0m")
-        train(model, dataloader, num_epochs=5, debug=DEBUG, lr=1e-4, preferred_idx=preferred_idx)
+        train(model, dataloader, num_epochs=10, debug=DEBUG, lr=2e-5, preferred_idx=preferred_idx)
 
         if not DEBUG:
             torch.save(model.state_dict(), f"fine-tuned-bulkformer-{dt.datetime.now()}.pt")
