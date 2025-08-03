@@ -14,6 +14,7 @@ import numpy as np
 
 from tqdm import tqdm
 import wandb
+import deepspeed
 
 from utils.BulkFormer import BulkFormer
 from model.config import model_params
@@ -170,6 +171,7 @@ def get_validation_metrics(X, y):
 
 
 def get_validation_metrics_from_embeddings(
+        model,
         file="~/UCLThesis/data/BIOAID_UCL_Oxford_361_labelled.parquet", 
         debug=True):
 
@@ -182,7 +184,7 @@ def get_validation_metrics_from_embeddings(
         high_var_genes_only=False,
     )
 
-    X = pd.DataFrame(embeddings.numpy(), columns=[f"col_{i}" for i in range(model.dim)])
+    X = pd.DataFrame(embeddings.numpy(), columns=[f"col_{i}" for i in range(model.module.dim)])
     label_col = "micro_diagnosis"
     
     # process targets
@@ -211,28 +213,15 @@ def train(model, dataloader, num_epochs=10, lr=1e-4, device="cuda", accumulation
     name=f"{model.__class__.__name__}_{dt.datetime.now()}"
     )
 
-    model = model.to(device) 
-    # model = torch.compile(model)  # not compatible with torch sparse
-    optimizer = optim.Adam(model.parameters(), lr=lr, fused=True)
+    model_engine, optimizer, _, _ = deepspeed.initialize(
+        model=model,
+        model_parameters=model.parameters(),
+        config="ds_config.json"
+    )
 
-    # TODO: turn this back on after baseline run, consider adding min rate
-    # total_steps  = num_epochs * len(dataloader) // accumulation_steps        # full training budget
-    # warmup_steps = int(0.1 * total_steps)              # e.g. 10 % warm-up
-    # max_lr       = lr 
+    device = model_engine.device
 
-    # def lr_lambda(step):
-    #     if step < warmup_steps:                        # linear warm-up
-    #         return max_lr * (step + 1) / warmup_steps
-    #     # cosine decay to zero
-    #     progress = (step - warmup_steps) / (total_steps - warmup_steps)
-    #     return 0.5 * (1 + math.cos(math.pi * progress)) * max_lr
-
-    # scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
-    
-    loss_fn = nn.MSELoss(reduction="none")
-    scaler = torch.amp.GradScaler()
-
-    model.train()
+    model_engine.train()
     global_step = 0
 
     for epoch in tqdm(range(num_epochs), desc="Epochs", position=0):
@@ -248,20 +237,23 @@ def train(model, dataloader, num_epochs=10, lr=1e-4, device="cuda", accumulation
             labels = labels.to(device)
             mask = mask.to(device)
 
-            with torch.amp.autocast(device_type=device):
-                preds = model(masked_x)
-                loss_matrix = loss_fn(preds, labels)
-                masked_loss = loss_matrix[mask].mean() / accumulation_steps
+            # with torch.amp.autocast(device_type="cuda"): 
+            out = model_engine(masked_x.half(), loss_params={
+                "mask": mask,
+                "labels": labels
+            })
 
-            scaler.scale(masked_loss).backward()
-            running_loss += masked_loss.item()
+            preds, loss = out["preds"], out["loss"]
+            # print("loss shape:", loss.shape)
+            # print("loss dtype:", loss.dtype)
+            # print("loss.requires_grad:", loss.requires_grad)
+
+            model_engine.backward(loss.half())
+            running_loss += loss.item()
 
             if (i + 1) % accumulation_steps == 0:
-                scaler.step(optimizer)
-                scaler.update()
-                optimizer.zero_grad(set_to_none=True)
-
-                # scheduler.step()
+                model_engine.steps()
+                model_engine.zero_grad()
 
                 avg_loss = running_loss
                 wandb.log({
@@ -275,29 +267,27 @@ def train(model, dataloader, num_epochs=10, lr=1e-4, device="cuda", accumulation
                 step += 1
                 global_step += 1
 
-            del batch, masked_x, labels, mask, preds, loss_matrix, masked_loss
+            del batch, masked_x, labels, mask, preds, loss_matrix, loss
             torch.cuda.empty_cache()
 
         # Final gradient step flush
         if (i + 1) % accumulation_steps != 0:
-            scaler.step(optimizer)
-            scaler.update()
-            optimizer.zero_grad(set_to_none=True)
-
-            # scheduler.step()
+            model_engine.steps()
+            model_engine.zero_grad()
 
             wandb.log({"train/loss": running_loss, "train/step": global_step})
             global_step += 1
 
         # measure performance on the training set from labelled dataset as validation 
-
         val_metrics = get_validation_metrics_from_embeddings(
+            model=model,
             file="~/UCLThesis/data/BIOAID_UCL_Oxford_361_labelled.parquet",
             debug=debug) # remember debug = True uses different dataset and ignores file
 
         wandb.log(val_metrics)
 
     wandb.finish()
+    return model_engine
 
 def extract_feature(model,
                     expr_array, 
@@ -401,8 +391,8 @@ def generate_embeddings(
 
 
 if __name__ == "__main__":
-    WANDB = True
-    DEBUG = False
+    WANDB = False
+    DEBUG = True
     if not WANDB:
         import os
         os.environ["WANDB_MODE"] = "disabled"
@@ -433,7 +423,7 @@ if __name__ == "__main__":
         preferred_idx = [i for i, gene_id in enumerate(all_genes) if gene_id in preferred_genes]
 
         print("\033[94mStarting Training\033[0m")
-        train(model, dataloader, num_epochs=5, debug=DEBUG, lr=1e-4, preferred_idx=preferred_idx)
+        model_engine = train(model, dataloader, num_epochs=5, debug=DEBUG, lr=1e-4, preferred_idx=preferred_idx)
 
         if not DEBUG:
             torch.save(model.state_dict(), f"fine-tuned-bulkformer-{dt.datetime.now()}.pt")

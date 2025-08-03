@@ -17,8 +17,13 @@
     },
     "offload_optimizer": {
       "device": "cpu"
-    },
-    "stage3_gather_16bit_weights_on_model_save": true
+    }
+  },
+
+  "activation_checkpointing": {
+    "partition_activations": true,
+    "cpu_checkpointing": true,
+    "contiguous_memory_optimization": true
   },
 
   "fp16": {

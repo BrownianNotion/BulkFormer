@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from utils.Encoder_block import GBFormer
 from utils.Rope import PositionalExprEmbedding
 
@@ -67,9 +68,9 @@ class BulkFormer(nn.Module):
             nn.ReLU(),
         )
 
-    def forward(self, x, repr_layers=None):
+    def forward(self, x, repr_layers=None, loss_params=None):
         b, g = x.shape
-        
+
         x = self.expr_emb(x) + self.gene_emb_proj(self.gene_emb) + self.ae_enc(x).unsqueeze(1)
         x = self.x_proj(x)
 
@@ -85,7 +86,15 @@ class BulkFormer(nn.Module):
         
         x = self.head(x).squeeze(-1)
 
+        out_dict = {"preds": x}
         if repr_layers:
-            return x, hidden
-        else:
-            return x
+            out_dict["hidden"] = hidden
+        
+        if loss_params is not None:
+            mask = loss_params["mask"]
+            labels = loss_params["labels"]
+
+            loss_matrix = F.mse_loss(x, labels, reduction='none')
+            out_dict["loss"] = loss_matrix[mask].mean()
+        
+        return out_dict
