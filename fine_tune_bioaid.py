@@ -44,7 +44,7 @@ def load_model(file):
     model_params['gene_emb'] = gene_emb
 
     model = BulkFormer(**model_params).to(device)
-    ckpt_model = torch.load(file, weights_only=False)
+    ckpt_model = torch.load(file, weights_only=True)
     new_state_dict = OrderedDict()
     for key, value in ckpt_model.items():
         new_key = key[7:] if key.startswith("module.") else key
