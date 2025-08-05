@@ -170,6 +170,7 @@ def get_validation_metrics(X, y):
 
 
 def get_validation_metrics_from_embeddings(
+        model,
         file="~/UCLThesis/data/BIOAID_UCL_Oxford_361_labelled.parquet", 
         debug=True):
 
@@ -197,19 +198,14 @@ def get_validation_metrics_from_embeddings(
 
     return get_validation_metrics(X, y)
 
-def train(model, dataloader, num_epochs=10, lr=1e-4, device="cuda", accumulation_steps=8, wandb_project="Thesis", debug=False,
+def train(model, dataloader, num_epochs=10, lr=1e-4, device="cuda", wandb_project="Thesis", debug=False,
           preferred_idx=None):
     # 🟢 Initialize wandb
-    wandb.init(project=wandb_project, config={
-        "learning_rate": lr,
-        "epochs": num_epochs,
-        "accumulation_steps": accumulation_steps,
-        "batch_size": dataloader.batch_size,
-        "model": model.__class__.__name__,
-    },
-    tags=["BulkFormer", "BiasedMask"],  # TODO: don't forget to add tags for each new run
-    name=f"{model.__class__.__name__}_{dt.datetime.now()}"
-    )
+    run = wandb.init(project=wandb_project,
+                    tags=["BulkFormer", "BiasedMask0Prob"],
+                    name=f"{model.__class__.__name__}_{dt.datetime.now()}")
+
+    accumulation_steps = wandb.config.batch_size // dataloader.batch_size 
 
     model = model.to(device) 
     # model = torch.compile(model)  # not compatible with torch sparse
@@ -292,6 +288,7 @@ def train(model, dataloader, num_epochs=10, lr=1e-4, device="cuda", accumulation
         # measure performance on the training set from labelled dataset as validation 
 
         val_metrics = get_validation_metrics_from_embeddings(
+            model = model,
             file="~/UCLThesis/data/BIOAID_UCL_Oxford_361_labelled.parquet",
             debug=debug) # remember debug = True uses different dataset and ignores file
 
@@ -399,8 +396,7 @@ def generate_embeddings(
 
     return embeddings 
 
-
-if __name__ == "__main__":
+def main():
     WANDB = True
     DEBUG = False
     if not WANDB:
@@ -433,7 +429,7 @@ if __name__ == "__main__":
         preferred_idx = [i for i, gene_id in enumerate(all_genes) if gene_id in preferred_genes]
 
         print("\033[94mStarting Training\033[0m")
-        train(model, dataloader, num_epochs=5, debug=DEBUG, lr=1e-4, preferred_idx=preferred_idx, accumulation_steps=128)
+        train(model, dataloader, num_epochs=5, debug=DEBUG, lr=1e-4, preferred_idx=preferred_idx)
 
         if not DEBUG:
             torch.save(model.state_dict(), f"fine-tuned-bulkformer-{dt.datetime.now()}.pt")
@@ -450,3 +446,16 @@ if __name__ == "__main__":
 
 
 
+
+if __name__ == "__main__":
+    sweep_configuration = {
+        "name": "batch_size_vs_noise",
+        "method": "grid",
+        "metric": {"goal": "maximize", "name": "val/f1"},
+        "parameters": {
+            "batch_size": {"values": [16, 32, 64, 128, 256]}
+        }
+    }
+
+    sweep_id = wandb.sweep(sweep=sweep_configuration, project="Thesis")
+    wandb.agent(sweep_id, function=main)
