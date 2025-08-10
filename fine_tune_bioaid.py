@@ -239,7 +239,7 @@ def train(model, dataloader, num_epochs=10, lr=1e-4, device="cuda", wandb_projec
 
         for i, (batch,) in pbar:
             batch = batch.to(device) # TODO: consider putting dataset on GPU to reduce transfers if memory allows
-            masked_x, labels, mask = mask_inputs(batch, preferred_idx=preferred_idx, preferred_masking_prob=0.0)
+            masked_x, labels, mask = mask_inputs(batch, preferred_idx=preferred_idx, preferred_masking_prob=0.6)
             masked_x = masked_x.to(device)
             labels = labels.to(device)
             mask = mask.to(device)
