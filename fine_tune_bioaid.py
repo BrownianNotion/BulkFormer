@@ -206,6 +206,7 @@ def train(model, dataloader, num_epochs=10, lr=1e-4, device="cuda", wandb_projec
                     name=f"{model.__class__.__name__}_{dt.datetime.now()}")
 
     accumulation_steps = wandb.config.batch_size // dataloader.batch_size 
+    preferred_masking_prob = wandb.config.preferred_masking_prob 
 
     model = model.to(device) 
     # model = torch.compile(model)  # not compatible with torch sparse
@@ -239,7 +240,7 @@ def train(model, dataloader, num_epochs=10, lr=1e-4, device="cuda", wandb_projec
 
         for i, (batch,) in pbar:
             batch = batch.to(device) # TODO: consider putting dataset on GPU to reduce transfers if memory allows
-            masked_x, labels, mask = mask_inputs(batch, preferred_idx=preferred_idx, preferred_masking_prob=0.6)
+            masked_x, labels, mask = mask_inputs(batch, preferred_idx=preferred_idx, preferred_masking_prob=preferred_masking_prob)
             masked_x = masked_x.to(device)
             labels = labels.to(device)
             mask = mask.to(device)
@@ -449,11 +450,12 @@ def main():
 
 if __name__ == "__main__":
     sweep_configuration = {
-        "name": "batch_size_vs_noise",
+        "name": "preferred_mask_prob",
         "method": "grid",
         "metric": {"goal": "maximize", "name": "val/f1"},
         "parameters": {
-            "batch_size": {"values": [16, 32, 64, 128, 256]}
+            "batch_size": {"values": [16]},
+            "preferred_masking_prob": {"values": [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]}
         }
     }
 
