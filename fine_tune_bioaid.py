@@ -228,16 +228,16 @@ def train(model, dataloader, num_epochs=10, lr=1e-4, device="cuda", wandb_projec
     
     loss_fn = nn.MSELoss(reduction="none")
     scaler = torch.amp.GradScaler()
-
-    model.train()
-    global_step = 0
-
+    
+    model.eval()
     val_metrics = get_validation_metrics_from_embeddings(
         model = model,
         file="~/UCLThesis/data/BIOAID_UCL_Oxford_361_labelled.parquet",
         debug=debug) # remember debug = True uses different dataset and ignores file
 
     print(val_metrics)
+    model.train()
+    global_step = 0
 
     for epoch in tqdm(range(1, num_epochs + 1), desc="Epochs", position=0):
         running_loss = 0.0
@@ -295,12 +295,15 @@ def train(model, dataloader, num_epochs=10, lr=1e-4, device="cuda", wandb_projec
 
         # measure performance on the training set from labelled dataset as validation 
 
+        model.eval()
         val_metrics = get_validation_metrics_from_embeddings(
             model = model,
             file="~/UCLThesis/data/BIOAID_UCL_Oxford_361_labelled.parquet",
             debug=debug) # remember debug = True uses different dataset and ignores file
 
         wandb.log(val_metrics)
+
+        model.train()
 
     wandb.finish()
 
