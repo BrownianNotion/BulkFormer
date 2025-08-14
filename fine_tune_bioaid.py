@@ -148,7 +148,7 @@ def get_validation_metrics(X, y):
     X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=0.8, random_state=42, stratify=y)
     clf = make_pipeline(
         StandardScaler(),
-        LogisticRegression(max_iter=200, penalty='l1', solver='saga') 
+        LogisticRegression(max_iter=200, penalty='l1', solver='saga', random_state=42) 
     ) 
 
     clf.fit(X_train, y_train)
@@ -232,7 +232,14 @@ def train(model, dataloader, num_epochs=10, lr=1e-4, device="cuda", wandb_projec
     model.train()
     global_step = 0
 
-    for epoch in tqdm(range(num_epochs), desc="Epochs", position=0):
+    val_metrics = get_validation_metrics_from_embeddings(
+        model = model,
+        file="~/UCLThesis/data/BIOAID_UCL_Oxford_361_labelled.parquet",
+        debug=debug) # remember debug = True uses different dataset and ignores file
+
+    print(val_metrics)
+
+    for epoch in tqdm(range(1, num_epochs + 1), desc="Epochs", position=0):
         running_loss = 0.0
         step = 0
 
@@ -400,11 +407,14 @@ def generate_embeddings(
 def main():
     WANDB = True
     DEBUG = False
+    SAVE = True
+
     if not WANDB:
         import os
         os.environ["WANDB_MODE"] = "disabled"
 
     torch.manual_seed(42)
+    np.random.seed(42)
 
     # TODO: Remove this if need higher precision
     torch.set_float32_matmul_precision('high')
@@ -432,7 +442,7 @@ def main():
         print("\033[94mStarting Training\033[0m")
         train(model, dataloader, num_epochs=5, debug=DEBUG, lr=1e-4, preferred_idx=preferred_idx)
 
-        if not DEBUG:
+        if not DEBUG and SAVE:
             torch.save(model.state_dict(), f"fine-tuned-bulkformer-{dt.datetime.now()}.pt")
     else:
         # TODO: move this to a separate script.
@@ -450,7 +460,7 @@ def main():
 
 if __name__ == "__main__":
     sweep_configuration = {
-        "name": "preferred_mask_prob",
+        "name": "preferred_mask_prob_seed_fix",
         "method": "grid",
         "metric": {"goal": "maximize", "name": "val/f1"},
         "parameters": {
