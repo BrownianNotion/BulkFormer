@@ -19,7 +19,7 @@ from utils.BulkFormer import BulkFormer
 from model.config import model_params
 
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, roc_auc_score, precision_recall_fscore_support
+from sklearn.metrics import roc_auc_score, confusion_matrix 
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import make_pipeline
@@ -30,6 +30,9 @@ import datetime as dt
 import math
 
 device = 'cuda'
+
+def _safe_div(a, b):
+    return a / b if b != 0 else 0.
 
 def load_model(file):
     graph_path = 'data/G_gtex.pt'
@@ -148,34 +151,39 @@ def get_validation_metrics(X, y):
     X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=0.8, random_state=42, stratify=y)
     clf = make_pipeline(
         StandardScaler(),
-        LogisticRegression(max_iter=200, penalty='l1', solver='saga', random_state=42) 
+        LogisticRegression(max_iter=100, penalty='l1', solver='liblinear', random_state=42) 
     ) 
 
     clf.fit(X_train, y_train)
     y_pred = clf.predict(X_test) 
     y_prob = clf.predict_proba(X_test)[:, 1]
 
-    accuracy = accuracy_score(y_test, y_pred)
     roc_auc = roc_auc_score(y_test, y_prob)
+    cm = confusion_matrix(y_test, y_pred)
 
-    precision, recall, f1, _ = precision_recall_fscore_support(y_test, y_pred, average='binary')
+    tp = cm[1, 1] 
+    tn = cm[0, 0] 
+    fp = cm[0, 1] 
+    fn = cm[1, 0] 
+
+    sensitivity = _safe_div(tp, tp + fn) 
+    specificity = _safe_div(tn, tn + fp) 
 
     return {
-        "val/accuracy": accuracy,
         "val/roc_auc": roc_auc ,
-        "val/precision": precision,
-        "val/recall": recall,
-        "val/f1": f1,
+        "val/specificity": specificity,
+        "val/sensitivity": sensitivity,
+        "val/youdensj": specificity + sensitivity - 1,
     }
 
 
 def get_validation_metrics_from_embeddings(
         model,
-        file="~/UCLThesis/data/BIOAID_UCL_Oxford_361_labelled.parquet", 
+        file="~/UCLThesis/data/labelled_tpm_PC1_log2.parquet", 
         debug=True):
 
     if debug:
-        file = "~/UCLThesis/data/BIOAID_UCL_Oxford_10_labelled_debug.parquet"
+        file = "~/UCLThesis/data/debug_labelled_tpm_PC1_log2.parquet"
 
     embeddings = generate_embeddings(
         model,
@@ -200,13 +208,14 @@ def get_validation_metrics_from_embeddings(
 
 def train(model, dataloader, num_epochs=10, lr=1e-4, device="cuda", wandb_project="Thesis", debug=False,
           preferred_idx=None):
-    # 🟢 Initialize wandb
+    # Initialize wandb
     run = wandb.init(project=wandb_project,
                     tags=["BulkFormer", "BiasedMask0Prob"],
                     name=f"{model.__class__.__name__}_{dt.datetime.now()}")
 
     accumulation_steps = wandb.config.batch_size // dataloader.batch_size 
     preferred_masking_prob = wandb.config.preferred_masking_prob 
+    print(f"Using mask prob {preferred_masking_prob}")
 
     model = model.to(device) 
     # model = torch.compile(model)  # not compatible with torch sparse
@@ -232,7 +241,7 @@ def train(model, dataloader, num_epochs=10, lr=1e-4, device="cuda", wandb_projec
     model.eval()
     val_metrics = get_validation_metrics_from_embeddings(
         model = model,
-        file="~/UCLThesis/data/BIOAID_UCL_Oxford_361_labelled.parquet",
+        file="~/UCLThesis/data/labelled_tpm_PC1_log2.parquet",
         debug=debug) # remember debug = True uses different dataset and ignores file
 
     print(val_metrics)
@@ -298,7 +307,7 @@ def train(model, dataloader, num_epochs=10, lr=1e-4, device="cuda", wandb_projec
         model.eval()
         val_metrics = get_validation_metrics_from_embeddings(
             model = model,
-            file="~/UCLThesis/data/BIOAID_UCL_Oxford_361_labelled.parquet",
+            file="~/UCLThesis/data/labelled_tpm_PC1_log2.parquet",
             debug=debug) # remember debug = True uses different dataset and ignores file
 
         wandb.log(val_metrics)
@@ -379,7 +388,7 @@ def extract_feature(model,
 
 def generate_embeddings(
         model, 
-        file="~/UCLThesis/data/BIOAID_UCL_Oxford_361_labelled.parquet", 
+        file="~/UCLThesis/data/labelled_tpm_PC1_log2.parquet", 
         high_var_genes_only=False):
     input_df, _, var = load_data(file, genes_only=False, return_df=True)
 
@@ -412,7 +421,7 @@ def main():
     DEBUG = False
     SAVE = True
 
-    if not WANDB:
+    if DEBUG or not WANDB:
         import os
         os.environ["WANDB_MODE"] = "disabled"
 
@@ -432,7 +441,7 @@ def main():
 
         print("Loading data...")
         DEBUG_TRAINING_SAMPLES = 10 if DEBUG else 1000000
-        data, _, _ = load_data("../UCLThesis/data/BIOAID_unlabelled_tpm_PC0.001_log2.parquet", return_df=True)
+        data, _, _ = load_data("../UCLThesis/data/unlabelled_tpm_PC1_log2.parquet", return_df=True)
         all_genes = data.columns
 
         data = torch.tensor(data.values, dtype=torch.float32)
@@ -446,7 +455,7 @@ def main():
         train(model, dataloader, num_epochs=5, debug=DEBUG, lr=1e-4, preferred_idx=preferred_idx)
 
         if not DEBUG and SAVE:
-            torch.save(model.state_dict(), f"fine-tuned-bulkformer-{dt.datetime.now()}.pt")
+            torch.save(model.state_dict(), f"newdata/fine-tuned-bulkformer-{dt.datetime.now()}.pt")
     else:
         # TODO: move this to a separate script.
         # generate the embeddings
@@ -463,12 +472,12 @@ def main():
 
 if __name__ == "__main__":
     sweep_configuration = {
-        "name": "preferred_mask_prob_seed_fix",
+        "name": "Preferred_Mask_Prob_Correct_Offset",
         "method": "grid",
-        "metric": {"goal": "maximize", "name": "val/f1"},
+        "metric": {"goal": "maximize", "name": "val/roc_auc"},
         "parameters": {
             "batch_size": {"values": [16]},
-            "preferred_masking_prob": {"values": [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]}
+            "preferred_masking_prob": {"values": [0.0, 0.25, 0.5, 0.75, 1.0]}
         }
     }
 
