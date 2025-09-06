@@ -39,15 +39,15 @@ def load_model(file):
     weights_path = 'data/G_gtex_weight.pt'
     gene_emb_path = 'data/esm2_feature_concat.pt'
 
-    graph = torch.load(graph_path, map_location='cpu', weights_only=False)
-    weights = torch.load(weights_path, map_location='cpu', weights_only=False)
+    graph = torch.load(graph_path, map_location='cpu', weights_only=True)
+    weights = torch.load(weights_path, map_location='cpu', weights_only=True)
     graph = SparseTensor(row=graph[1], col=graph[0], value=weights).t().to(device)
-    gene_emb = torch.load(gene_emb_path, map_location='cpu', weights_only=False)
+    gene_emb = torch.load(gene_emb_path, map_location='cpu', weights_only=True)
     model_params['graph'] = graph
     model_params['gene_emb'] = gene_emb
 
     model = BulkFormer(**model_params).to(device)
-    ckpt_model = torch.load(file, weights_only=False)
+    ckpt_model = torch.load(file, weights_only=True)
     new_state_dict = OrderedDict()
     for key, value in ckpt_model.items():
         new_key = key[7:] if key.startswith("module.") else key
@@ -456,30 +456,27 @@ def main():
 
         if not DEBUG and SAVE:
             torch.save(model.state_dict(), f"newdata/fine-tuned-bulkformer-{dt.datetime.now()}.pt")
+
+if __name__ == "__main__":
+    TRAIN = False
+    if TRAIN:
+        sweep_configuration = {
+            "name": "Preferred_Mask_Prob_Correct_Offset",
+            "method": "grid",
+            "metric": {"goal": "maximize", "name": "val/roc_auc"},
+            "parameters": {
+                "batch_size": {"values": [16]},
+                "preferred_masking_prob": {"values": [0.0, 0.25, 0.5, 0.75, 1.0]}
+            }
+        }
+
+        sweep_id = wandb.sweep(sweep=sweep_configuration, project="Thesis")
+        wandb.agent(sweep_id, function=main)
     else:
-        # TODO: move this to a separate script.
-        # generate the embeddings
-        model = load_model(file="fine-tuned-bulkformer.pt")
+        model = load_model(file="newdata/fine-tuned-bulkformer-2025-09-06 01:29:03.903786.pt")
         embeddings = generate_embeddings(model)
 
         # about 1 minute batch size 16 for 1100, time seems around same with batch size 4
         embeddings = pd.DataFrame(embeddings.numpy(), columns=[f"col_{i}" for i in range(640)])
         display(embeddings)
-        embeddings.to_parquet("../UCLThesis/data/BIOAID_361_embeddings_all_genes_fine_tuned.parquet", index=False)
-
-
-
-
-if __name__ == "__main__":
-    sweep_configuration = {
-        "name": "Preferred_Mask_Prob_Correct_Offset",
-        "method": "grid",
-        "metric": {"goal": "maximize", "name": "val/roc_auc"},
-        "parameters": {
-            "batch_size": {"values": [16]},
-            "preferred_masking_prob": {"values": [0.0, 0.25, 0.5, 0.75, 1.0]}
-        }
-    }
-
-    sweep_id = wandb.sweep(sweep=sweep_configuration, project="Thesis")
-    wandb.agent(sweep_id, function=main)
+        embeddings.to_parquet("../UCLThesis/data/bulkformer_ft_prob05_embeddings.parquet", index=False)
